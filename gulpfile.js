@@ -15,6 +15,7 @@ const shell = require('shelljs')
 const mocha = require('gulp-mocha');
 const ts = require('gulp-typescript');
 const { isExpressionWithTypeArguments } = require('typescript');
+const elmSolver = require("./lib/elm-solver/index.js")
 const mainTsProject = ts.createProject('./tsconfig.json')
 const cliTsProject = ts.createProject('./cli2/tsconfig.json')
 const readFile = util.promisify(fs.readFile)
@@ -121,8 +122,14 @@ const buildMorphirAPI2 = async ()=>{
 
 }
 
+async function solveElm() {
+    const result = await elmSolver("./elm.json");
+    console.log(`Solved: ${result}`);
+}
+
 const build =
     series(
+        solveElm,
         checkElmDocs,
         makeCLI,
         makeDevCLI,
@@ -452,6 +459,7 @@ exports.makeCLI = makeCLI;
 exports.makeDevCLI = makeDevCLI;
 exports.buildCLI2 = buildCLI2;
 exports.compileMain2Ts = compileMain2Ts;
+exports.solveElm = solveElm;
 exports.build = build;
 exports.test = test;
 exports.csvfiles = csvfiles;
@@ -469,5 +477,6 @@ exports.default =
             copyMorphirJVMAssets,
             cleanupMorphirJVM
         ),
-        build
+        build,
+
     );

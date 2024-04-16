@@ -75,6 +75,7 @@
     "elm": "^0.19.1-5",
     "elm-doc-preview": "^5.0.5",
     "elm-format": "^0.8.5",
+    "elm-solve-deps-wasm": "^1.0.2",
     "elm-test": "^0.19.1-revision6",
     "elm-tooling": "^1.15.0",
     "execa": "^5.1.1",
