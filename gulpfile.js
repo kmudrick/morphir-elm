@@ -1,4 +1,6 @@
 const { series, parallel, src, dest } = require('gulp');
+const { supportsColor } = require('chalk');
+const which = require('which');
 const concat = require('gulp-concat');
 const os = require('os')
 const path = require('path')
@@ -9,13 +11,16 @@ const git = require('isomorphic-git')
 const { request: delegate } = require('isomorphic-git/http/node')
 const { HttpProxyAgent, HttpsProxyAgent } = require('hpagent')
 const del = require('del')
-const elmMake = require('node-elm-compiler').compile
+const elmMakeOld = require('node-elm-compiler').compile
 const execa = require('execa');
 const shell = require('shelljs')
 const mocha = require('gulp-mocha');
 const ts = require('gulp-typescript');
 const { isExpressionWithTypeArguments } = require('typescript');
-const elmSolver = require("./lib/elm-solver/index.js")
+const elmSolver = require("./lib/elm-solver/index.js");
+const spawn = require('cross-spawn');
+const Compiler = require("elm-test/lib/Compile.js");
+const ElmCompiler = require("elm-test/lib/ElmCompiler.js");
 const mainTsProject = ts.createProject('./tsconfig.json')
 const cliTsProject = ts.createProject('./cli2/tsconfig.json')
 const readFile = util.promisify(fs.readFile)
@@ -60,6 +65,73 @@ function copyMorphirJVMAssets() {
 
 async function cleanupMorphirJVM() {
     return del(config.morphirJvmCloneDir.name + '/**', { force: true });
+}
+
+function spawnCompiler({ ignoreStdout, cwd }) {
+    return (
+      pathToElm /*: string */,
+      processArgs /*: Array<string> */,
+      processOpts /*: child_process$spawnOpts */
+    ) => {
+      // It might seem useless to specify 'pipe' and then just write all data to
+      // `process.stdout`/`process.stderr`, but it does make a difference: The Elm
+      // compiler turns off colors when it’s used in a pipe. In summary:
+      //
+      // 'inherit' -> Colors, automatically written to stdout/stderr
+      // 'pipe' -> No colors, we need to explicitly write to stdout/stderr
+      const stdout = ignoreStdout ? 'ignore' : supportsColor ? 'inherit' : 'pipe';
+      const stderr = supportsColor ? 'inherit' : 'pipe';
+  
+      const finalOpts = {
+        env: process.env,
+        ...processOpts,
+        cwd,
+        stdio: ['inherit', stdout, stderr],
+      };
+  
+      const child = spawn(pathToElm, processArgs, finalOpts);
+  
+      if (stdout === 'pipe') {
+        child.stdout.on('data', (data) => process.stdout.write(data));
+      }
+  
+      if (stderr === 'pipe') {
+        child.stderr.on('data', (data) => process.stderr.write(data));
+      }
+  
+      return child;
+    };
+  }  
+
+const pathToElmBinary = path.resolve(which.sync("elm"));
+
+async function elmMake(sources, options = {}) {
+    return new Promise((resolve, reject) => {
+        const projectRootDir = options.cwd ?? process.cwd();
+        const docs = options.docs;
+        const report = 'json';
+        const processOpts = {
+            env: process.env, 
+            stdio: ['ignore', 'ignore', process.stderr],
+            docs
+        };
+        const compileProcess = ElmCompiler.compile(sources, {
+            output: '/dev/null',
+            cwd: projectRootDir,
+            spawn: spawnCompiler({ ignoreStdout: false, cwd: projectRootDir }),
+            pathToElm: pathToElmBinary,
+            report,
+            processOpts
+        });
+        compileProcess.on('close', function (exitCode) {
+            if (exitCode === 0) {
+                return resolve();
+            } else {
+                return reject(new Error(`\`elm make\` failed with exit code ${exitCode}.`));
+            }
+        });
+    });
+    // return compileSources(sources, projectRootDir, pathToElmBinary, report);
 }
 
 function checkElmDocs() {
@@ -454,6 +526,7 @@ const csvfiles = series(
     testCreateCSV,
 )
 
+exports.checkElmDocs = checkElmDocs;
 exports.clean = clean;
 exports.makeCLI = makeCLI;
 exports.makeDevCLI = makeDevCLI;
